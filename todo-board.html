@@ -1,0 +1,477 @@
+<title>Priority Stack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one centred column of draggable tiles; priority colour lives on each tile's grip handle. */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --surface-2:#f5f7fa; --line:#d9dfe7;
+  --fg:#16202c; --muted:#5d6b7c; --accent:#2f5bea; --accent-ink:#ffffff;
+  --p-urgent:#d6293e; --p-high:#e8792b; --p-normal:#2f5bea; --p-low:#7f8fa3;
+  --s-todo:#5d6b7c; --s-doing:#2f5bea; --s-waiting:#a0660b; --s-done:#1f8a55;
+  --warn-bg:#fdecee; --warn-fg:#b01d31; --soon-bg:#fff3e2; --soon-fg:#98520d;
+  --shadow:0 1px 2px rgba(22,32,44,.06),0 4px 14px rgba(22,32,44,.06);
+  --f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"Instrument Sans",ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141b; --surface:#18202a; --surface-2:#1e2833; --line:#2c3847;
+  --fg:#e7edf4; --muted:#93a1b2; --accent:#6f8fff; --accent-ink:#0b1020;
+  --p-urgent:#ff5d6e; --p-high:#ff9a4d; --p-normal:#6f8fff; --p-low:#8c9bb0;
+  --s-todo:#93a1b2; --s-doing:#6f8fff; --s-waiting:#e6a94a; --s-done:#4cc98a;
+  --warn-bg:#3a1a20; --warn-fg:#ff8d99; --soon-bg:#3a2a14; --soon-fg:#ffbe73;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141b; --surface:#18202a; --surface-2:#1e2833; --line:#2c3847;
+  --fg:#e7edf4; --muted:#93a1b2; --accent:#6f8fff; --accent-ink:#0b1020;
+  --p-urgent:#ff5d6e; --p-high:#ff9a4d; --p-normal:#6f8fff; --p-low:#8c9bb0;
+  --s-todo:#93a1b2; --s-doing:#6f8fff; --s-waiting:#e6a94a; --s-done:#4cc98a;
+  --warn-bg:#3a1a20; --warn-fg:#ff8d99; --soon-bg:#3a2a14; --soon-fg:#ffbe73;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25); color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--f-body);margin:0}
+.wrap{max-width:720px;margin:0 auto;padding-inline:16px;padding-block:28px 80px;display:flex;flex-direction:column;gap:18px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font:800 clamp(28px,6vw,38px)/1 var(--f-display);letter-spacing:-.02em;margin:0;text-wrap:balance}
+.sub{color:var(--muted);font-size:13px;margin-top:6px}
+.counts{display:flex;gap:6px;flex-wrap:wrap}
+.count{font:500 12px var(--f-mono);padding:4px 8px;border-radius:6px;background:var(--surface);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.count b{font-weight:500}
+.count.alert{background:var(--warn-bg);color:var(--warn-fg);border-color:transparent}
+
+.adder{display:flex;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:var(--shadow)}
+.adder input{flex:1;min-width:0;border:0;background:transparent;padding:10px 10px;outline:none;font-size:16px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 12px;font-weight:600;font-size:13px}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.07);background:var(--accent)}
+.btn.danger{color:var(--warn-fg);border-color:var(--warn-fg);background:transparent}
+.btn.danger.solid{background:var(--warn-fg);color:var(--surface)}
+
+.toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:6px 10px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface-2);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line)}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+
+.notice{font-size:13px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:10px 12px}
+
+ol.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.tile{--pc:var(--p-normal);background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);display:grid;grid-template-columns:22px 1fr;overflow:hidden;transition:border-color .15s}
+.tile[data-p="urgent"]{--pc:var(--p-urgent)} .tile[data-p="high"]{--pc:var(--p-high)}
+.tile[data-p="normal"]{--pc:var(--p-normal)} .tile[data-p="low"]{--pc:var(--p-low)}
+.tile.open{border-color:var(--pc)}
+.grip{background:var(--pc);cursor:grab;display:flex;align-items:center;justify-content:center;touch-action:none;border:0;padding:0}
+.grip svg{opacity:.75;fill:var(--surface)}
+.grip:active{cursor:grabbing}
+.body{min-width:0}
+.row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 10px 10px 12px}
+.check{width:22px;height:22px;border-radius:50%;border:2px solid var(--pc);background:transparent;display:grid;place-items:center;padding:0;flex:none}
+.check svg{opacity:0;stroke:var(--surface)}
+.tile.done .check{background:var(--s-done);border-color:var(--s-done)}
+.tile.done .check svg{opacity:1}
+.main{min-width:0;cursor:pointer;border:0;background:transparent;text-align:left;padding:0}
+.title{font-weight:600;overflow-wrap:anywhere}
+.tile.done .title{text-decoration:line-through;color:var(--muted);font-weight:500}
+.meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center}
+.chip{font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--surface-2);color:var(--muted);display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.chip.due{font-family:var(--f-mono);font-weight:500;letter-spacing:-.01em}
+.chip.over{background:var(--warn-bg);color:var(--warn-fg)}
+.chip.soon{background:var(--soon-bg);color:var(--soon-fg)}
+.chip.st::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--sc)}
+.chip.pri{color:var(--pc);text-transform:uppercase;letter-spacing:.06em;font-size:10.5px}
+.chip.ex{border:1px dashed var(--line);background:transparent}
+.moves{display:flex;flex-direction:column;gap:2px}
+.moves button{border:0;background:transparent;color:var(--muted);width:28px;height:22px;border-radius:5px;display:grid;place-items:center;padding:0}
+.moves button:hover{background:var(--surface-2);color:var(--fg)}
+
+.editor{border-top:1px solid var(--line);padding:12px;display:grid;gap:12px;background:var(--surface-2)}
+.editor label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:5px}
+.editor input[type=text],.editor input[type=date],.editor input[type=time],.editor textarea{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px}
+.editor textarea{min-height:90px;resize:vertical;line-height:1.5}
+.two{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}
+.opts{display:flex;gap:6px;flex-wrap:wrap}
+.opt{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:500;display:inline-flex;gap:6px;align-items:center}
+.opt::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--oc)}
+.opt[aria-pressed="true"]{border-color:var(--oc);box-shadow:inset 0 0 0 1px var(--oc)}
+.foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
+.foot .stamp{font-size:12px;color:var(--muted)}
+
+.ghost{opacity:.35}
+.chosen{box-shadow:0 12px 30px rgba(22,32,44,.22)}
+.empty{text-align:center;color:var(--muted);padding:36px 12px;border:1px dashed var(--line);border-radius:12px}
+.empty strong{display:block;color:var(--fg);font:600 18px var(--f-display);margin-bottom:4px}
+
+details.import{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+details.import summary{cursor:pointer;font-weight:600}
+details.import p{color:var(--muted);font-size:13px;margin:8px 0}
+details.import textarea{width:100%;min-height:120px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface-2);font-family:var(--f-mono);font-size:13px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;font-weight:500;display:flex;gap:12px;align-items:center}
+.toast button{background:transparent;border:0;color:var(--accent);font-weight:700;padding:0;filter:brightness(1.4)}
+
+@media (max-width:480px){.two{grid-template-columns:1fr 1fr}.two .btn{grid-column:1/-1}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Priority Stack</h1>
+      <div class="sub" id="sub">Drag tiles to reprioritise. Tap a tile to edit its time, status and notes.</div>
+    </div>
+    <div class="counts" id="counts"></div>
+  </header>
+
+  <form class="adder" id="adder" autocomplete="off">
+    <input id="newTitle" type="text" placeholder="Add a task and press Enter" aria-label="New task title">
+    <button class="btn primary" type="submit">Add tile</button>
+  </form>
+
+  <div class="toolbar">
+    <div class="seg" id="filters" role="group" aria-label="Filter">
+      <button type="button" data-f="active" aria-pressed="true">Active</button>
+      <button type="button" data-f="today">Due today</button>
+      <button type="button" data-f="all">All</button>
+      <button type="button" data-f="done">Done</button>
+    </div>
+    <div class="tools">
+      <button class="btn" type="button" id="sortPri">Sort by priority</button>
+      <button class="btn" type="button" id="sortDue">Sort by date</button>
+    </div>
+  </div>
+
+  <div class="notice" id="notice" hidden></div>
+  <ol class="list" id="list"></ol>
+  <div class="empty" id="empty" hidden><strong>Nothing here yet</strong>Add your first tile above, or import your Reminders list below.</div>
+
+  <details class="import" id="importBox">
+    <summary>Import from Apple Reminders</summary>
+    <p>On a Mac: open Reminders, click into a list, press ⌘A then ⌘C, and paste here. On iPhone, paste any list with one task per line. Each line becomes a tile.</p>
+    <textarea id="importText" placeholder="Call accountant&#10;Book WOF for the van&#10;Send quote to Harrison"></textarea>
+    <div class="foot" style="margin-top:8px">
+      <span class="stamp" id="importCount">0 tasks detected</span>
+      <button class="btn primary" type="button" id="importBtn">Import tiles</button>
+    </div>
+  </details>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script>
+const PRI = [["urgent","Urgent"],["high","High"],["normal","Normal"],["low","Low"]];
+const STA = [["todo","To do"],["doing","In progress"],["waiting","Waiting"],["done","Done"]];
+const PRANK = {urgent:0,high:1,normal:2,low:3};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let tasks = new Map();      // id -> data
+let openId = null, filter = "active", dragging = false, store = null;
+try { filter = localStorage.getItem("ps-filter") || "active"; } catch(e) {}
+
+/* ---------- storage: shared db when available, this browser otherwise ---------- */
+function localStore(){
+  const KEY = "ps-tasks";
+  let cb = () => {};
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch(e) { return null; } };
+  let data = load() || {};
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch(e) {} cb(data); };
+  return {
+    kind: "local",
+    subscribe(fn){ cb = fn; fn(data); },
+    async set(id, d){ data[id] = d; save(); },
+    async update(id, p){ data[id] = {...data[id], ...p}; save(); },
+    async remove(id){ delete data[id]; save(); }
+  };
+}
+function dbStore(db){
+  const col = db.collection("tasks");
+  const queues = {};
+  const enqueue = (id, fn) => (queues[id] = (queues[id] || Promise.resolve()).then(fn).catch(err => showToast(writeError(err))));
+  return {
+    kind: "db",
+    subscribe(fn){
+      col.onSnapshot(snap => { const o = {}; snap.docs.forEach(d => o[d.id] = d.data()); fn(o); },
+                     err => showNotice("Couldn't load your tiles: " + (err?.message || "connection problem") + ". Reload to try again."));
+    },
+    set(id, d){ return enqueue(id, () => col.doc(id).set(d)); },
+    update(id, p){ return enqueue(id, () => col.doc(id).update(p)); },
+    remove(id){ return enqueue(id, () => col.doc(id).delete()); }
+  };
+}
+function writeError(err){
+  return err?.code === "permission_denied" ? "You can view this board but not change it." : "That change didn't save. Check your connection and try again.";
+}
+
+/* ---------- time helpers ---------- */
+function parseDue(t){ if (!t.dueDate) return null; return new Date(t.dueDate + "T" + (t.dueTime || "23:59")); }
+function dayDiff(d){ const a = new Date(); a.setHours(0,0,0,0); const b = new Date(d); b.setHours(0,0,0,0); return Math.round((b - a) / 864e5); }
+function fmtTime(hm){ const [h,m] = hm.split(":").map(Number); const ap = h >= 12 ? "pm" : "am"; return ((h % 12) || 12) + (m ? ":" + String(m).padStart(2,"0") : "") + ap; }
+function dueInfo(t){
+  const d = parseDue(t); if (!d) return null;
+  const now = new Date(), dd = dayDiff(d), time = t.dueTime ? " " + fmtTime(t.dueTime) : "";
+  let label, cls = "";
+  if (d < now && t.status !== "done") {
+    const mins = Math.round((now - d) / 6e4);
+    label = mins < 60 ? "Overdue " + mins + "m" : mins < 1440 ? "Overdue " + Math.round(mins/60) + "h" : "Overdue " + Math.abs(dd) + "d";
+    cls = "over";
+  } else if (dd === 0) {
+    const mins = Math.round((d - now) / 6e4);
+    label = t.dueTime && mins >= 0 && mins < 120 ? "In " + (mins < 60 ? mins + "m" : Math.round(mins/60) + "h") + time : "Today" + time;
+    cls = "soon";
+  } else if (dd === 1) label = "Tomorrow" + time;
+  else if (dd > 1 && dd < 7) label = d.toLocaleDateString(undefined,{weekday:"short"}) + time;
+  else label = d.toLocaleDateString(undefined,{day:"numeric",month:"short"}) + time;
+  return {label, cls};
+}
+
+/* ---------- rendering ---------- */
+const listEl = $("#list");
+function sorted(){ return [...tasks.entries()].sort((a,b) => (a[1].order ?? 0) - (b[1].order ?? 0)); }
+function visible(t){
+  if (filter === "all") return true;
+  if (filter === "done") return t.status === "done";
+  if (t.status === "done") return false;
+  if (filter === "today") { const d = parseDue(t); return !!d && dayDiff(d) <= 0; }
+  return true;
+}
+const ICON_GRIP = '<svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><circle cx="2" cy="2" r="1.3"/><circle cx="6" cy="2" r="1.3"/><circle cx="2" cy="7" r="1.3"/><circle cx="6" cy="7" r="1.3"/><circle cx="2" cy="12" r="1.3"/><circle cx="6" cy="12" r="1.3"/></svg>';
+const ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg>';
+
+function summaryHTML(id, t){
+  const due = dueInfo(t), st = STA.find(s => s[0] === t.status) || STA[0];
+  const pl = (PRI.find(p => p[0] === t.priority) || PRI[2])[1];
+  return `<button class="check" type="button" data-act="toggle" aria-label="${t.status === "done" ? "Mark not done" : "Mark done"}">${ICON_CHECK}</button>
+    <button class="main" type="button" data-act="open" aria-expanded="${openId === id}">
+      <div class="title">${esc(t.title) || "Untitled"}</div>
+      <div class="meta">
+        <span class="chip pri">${pl}</span>
+        <span class="chip st" style="--sc:var(--s-${st[0]})">${st[1]}</span>
+        ${due ? `<span class="chip due ${due.cls}">${esc(due.label)}</span>` : ""}
+        ${t.notes ? `<span class="chip" title="Has notes">Notes</span>` : ""}
+        ${t.example ? `<span class="chip ex">Example</span>` : ""}
+      </div>
+    </button>
+    <div class="moves">
+      <button type="button" data-act="up" aria-label="Move up"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7.5l3-3 3 3"/></svg></button>
+      <button type="button" data-act="down" aria-label="Move down"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 4.5l3 3 3-3"/></svg></button>
+    </div>`;
+}
+function editorHTML(id, t){
+  const opt = (arr, key, cur, prefix) => arr.map(([v,l]) => `<button type="button" class="opt" data-set="${key}" data-val="${v}" aria-pressed="${cur === v}" style="--oc:var(--${prefix}-${v})">${l}</button>`).join("");
+  return `<div class="editor">
+    <div><label for="t-${id}">Task</label><input type="text" id="t-${id}" data-field="title" value="${esc(t.title)}"></div>
+    <div class="two">
+      <div><label for="d-${id}">Date</label><input type="date" id="d-${id}" data-field="dueDate" value="${esc(t.dueDate || "")}"></div>
+      <div><label for="h-${id}">Time</label><input type="time" id="h-${id}" data-field="dueTime" value="${esc(t.dueTime || "")}"></div>
+      <button class="btn" type="button" data-act="cleardue">Clear</button>
+    </div>
+    <div><label>Priority</label><div class="opts">${opt(PRI,"priority",t.priority,"p")}</div></div>
+    <div><label>Status</label><div class="opts">${opt(STA,"status",t.status,"s")}</div></div>
+    <div><label for="n-${id}">Notes</label><textarea id="n-${id}" data-field="notes" placeholder="Details, links, phone numbers, next steps">${esc(t.notes || "")}</textarea></div>
+    <div class="foot">
+      <span class="stamp">${t.created ? "Created " + new Date(t.created).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}) : ""}</span>
+      <span class="delwrap"><button class="btn danger" type="button" data-act="askdel">Delete tile</button></span>
+    </div>
+  </div>`;
+}
+
+function render(){
+  if (dragging) return;
+  const items = sorted();
+  const shown = items.filter(([,t]) => visible(t));
+  const focused = document.activeElement;
+  const keep = new Set(shown.map(([id]) => id));
+  [...listEl.children].forEach(li => { if (!keep.has(li.dataset.id)) li.remove(); });
+  shown.forEach(([id, t], i) => {
+    let li = listEl.querySelector(`li[data-id="${CSS.escape(id)}"]`);
+    if (!li) {
+      li = document.createElement("li");
+      li.className = "tile"; li.dataset.id = id;
+      li.innerHTML = `<button class="grip" type="button" aria-label="Drag to reorder" tabindex="-1">${ICON_GRIP}</button><div class="body"><div class="row"></div></div>`;
+    }
+    li.dataset.p = t.priority || "normal";
+    li.classList.toggle("done", t.status === "done");
+    li.classList.toggle("open", openId === id);
+    li.querySelector(".row").innerHTML = summaryHTML(id, t);
+    const body = li.querySelector(".body");
+    let ed = body.querySelector(".editor");
+    if (openId === id) {
+      if (!ed) { body.insertAdjacentHTML("beforeend", editorHTML(id, t)); }
+      else {
+        ed.querySelectorAll("[data-field]").forEach(inp => { if (inp !== focused && !pending[id + inp.dataset.field]) inp.value = t[inp.dataset.field] || ""; });
+        ed.querySelectorAll("[data-set]").forEach(b => b.setAttribute("aria-pressed", t[b.dataset.set] === b.dataset.val));
+      }
+    } else if (ed) ed.remove();
+    if (listEl.children[i] !== li) listEl.insertBefore(li, listEl.children[i] || null);
+  });
+  $("#empty").hidden = shown.length > 0;
+  if (!shown.length && tasks.size) $("#empty").innerHTML = "<strong>All clear</strong>No tiles match this filter.";
+  else $("#empty").innerHTML = "<strong>Nothing here yet</strong>Add your first tile above, or import your Reminders list below.";
+  renderCounts(items);
+}
+function renderCounts(items){
+  const act = items.filter(([,t]) => t.status !== "done");
+  const over = act.filter(([,t]) => { const d = parseDue(t); return d && d < new Date(); }).length;
+  const today = act.filter(([,t]) => { const d = parseDue(t); return d && dayDiff(d) === 0; }).length;
+  const urgent = act.filter(([,t]) => t.priority === "urgent").length;
+  $("#counts").innerHTML =
+    `<span class="count"><b>${act.length}</b> open</span>` +
+    `<span class="count"><b>${today}</b> today</span>` +
+    `<span class="count${urgent ? " alert" : ""}"><b>${urgent}</b> urgent</span>` +
+    `<span class="count${over ? " alert" : ""}"><b>${over}</b> overdue</span>`;
+}
+
+/* ---------- actions ---------- */
+const newId = () => "t" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+function orderAt(indexInAll){ const all = sorted(); return all[indexInAll]?.[1].order; }
+function addTask(title, extra = {}, atEnd = false){
+  const all = sorted();
+  const order = all.length ? (atEnd ? all[all.length-1][1].order + 1024 : all[0][1].order - 1024) : 0;
+  const id = newId();
+  const t = {title, notes:"", dueDate:"", dueTime:"", priority:"normal", status:"todo", order, created:Date.now(), ...extra};
+  tasks.set(id, t); render();
+  store.set(id, t);
+  return id;
+}
+function patch(id, p){ const t = tasks.get(id); if (!t) return; tasks.set(id, {...t, ...p}); render(); store.update(id, p); }
+
+// Move id so that it sits between the visible neighbours prevId / nextId.
+function placeBetween(id, prevId, nextId){
+  const a = prevId ? tasks.get(prevId).order : null, b = nextId ? tasks.get(nextId).order : null;
+  let o;
+  if (a == null && b == null) return;
+  if (a == null) o = b - 1024; else if (b == null) o = a + 1024; else o = (a + b) / 2;
+  if (Math.abs((b ?? o) - (a ?? o)) < 1e-6) { renumber(); return placeBetween(id, prevId, nextId); }
+  patch(id, {order:o});
+}
+function renumber(){ sorted().forEach(([id,t], i) => { const o = i * 1024; if (t.order !== o) { tasks.set(id, {...t, order:o}); store.update(id, {order:o}); } }); }
+function move(id, dir){
+  const vis = [...listEl.children].map(li => li.dataset.id);
+  const i = vis.indexOf(id), j = i + dir;
+  if (j < 0 || j >= vis.length) return;
+  if (dir < 0) placeBetween(id, vis[j-1], vis[j]); else placeBetween(id, vis[j], vis[j+1]);
+  requestAnimationFrame(() => listEl.querySelector(`li[data-id="${CSS.escape(id)}"] [data-act="${dir<0?"up":"down"}"]`)?.focus());
+}
+function sortBy(kind){
+  const all = sorted();
+  const key = kind === "pri"
+    ? ([,t]) => [t.status === "done" ? 1 : 0, PRANK[t.priority] ?? 2, parseDue(t)?.getTime() ?? Infinity]
+    : ([,t]) => [t.status === "done" ? 1 : 0, parseDue(t)?.getTime() ?? Infinity, PRANK[t.priority] ?? 2];
+  all.sort((x,y) => { const a = key(x), b = key(y); for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return a[k] - b[k]; return 0; });
+  all.forEach(([id,t], i) => { const o = i * 1024; if (t.order !== o) { tasks.set(id, {...t, order:o}); store.update(id, {order:o}); } });
+  render(); showToast(kind === "pri" ? "Sorted by priority" : "Sorted by date");
+}
+
+let lastDeleted = null;
+function del(id){
+  lastDeleted = [id, tasks.get(id)];
+  tasks.delete(id); if (openId === id) openId = null; render(); store.remove(id);
+  showToast("Tile deleted", "Undo", () => { const [i,t] = lastDeleted; tasks.set(i,t); render(); store.set(i,t); });
+}
+
+/* ---------- events ---------- */
+$("#adder").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = $("#newTitle").value.trim(); if (!v) return;
+  addTask(v); $("#newTitle").value = "";
+  if (filter === "done") setFilter("active");
+});
+function setFilter(f){
+  filter = f; try { localStorage.setItem("ps-filter", f); } catch(e) {}
+  document.querySelectorAll("#filters button").forEach(b => b.setAttribute("aria-pressed", b.dataset.f === f));
+  render();
+}
+$("#filters").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setFilter(b.dataset.f); });
+$("#sortPri").onclick = () => sortBy("pri");
+$("#sortDue").onclick = () => sortBy("due");
+
+listEl.addEventListener("click", e => {
+  const li = e.target.closest("li.tile"); if (!li) return;
+  const id = li.dataset.id, t = tasks.get(id);
+  const actEl = e.target.closest("[data-act]"), setEl = e.target.closest("[data-set]");
+  if (setEl) { patch(id, {[setEl.dataset.set]: setEl.dataset.val}); return; }
+  if (!actEl) return;
+  switch (actEl.dataset.act) {
+    case "toggle": patch(id, {status: t.status === "done" ? "todo" : "done"}); break;
+    case "open": openId = openId === id ? null : id; render();
+      if (openId) li.querySelector(".editor input")?.focus({preventScroll:true}); break;
+    case "up": move(id, -1); break;
+    case "down": move(id, 1); break;
+    case "cleardue": patch(id, {dueDate:"", dueTime:""}); break;
+    case "askdel": actEl.parentElement.innerHTML = `<button class="btn" type="button" data-act="canceldel">Keep</button> <button class="btn danger solid" type="button" data-act="confirmdel">Yes, delete</button>`; break;
+    case "canceldel": actEl.parentElement.innerHTML = `<button class="btn danger" type="button" data-act="askdel">Delete tile</button>`; break;
+    case "confirmdel": del(id); break;
+  }
+});
+// Text fields: save after a short pause; dates/times save on change.
+const pending = {};
+listEl.addEventListener("input", e => {
+  const f = e.target.dataset.field; if (!f) return;
+  const id = e.target.closest("li").dataset.id, key = id + f, val = e.target.value;
+  if (f === "dueDate" || f === "dueTime") return;
+  clearTimeout(pending[key]);
+  pending[key] = setTimeout(() => { delete pending[key]; patch(id, {[f]: val}); }, 600);
+});
+listEl.addEventListener("change", e => {
+  const f = e.target.dataset.field; if (!f) return;
+  const id = e.target.closest("li").dataset.id, key = id + f;
+  clearTimeout(pending[key]); delete pending[key];
+  if (tasks.get(id)?.[f] !== e.target.value) patch(id, {[f]: e.target.value});
+});
+
+new Sortable(listEl, {
+  handle: ".grip", animation: 160, ghostClass: "ghost", chosenClass: "chosen",
+  delay: 0, fallbackTolerance: 3,
+  onStart(){ dragging = true; },
+  onEnd(evt){
+    dragging = false;
+    const lis = [...listEl.children], i = evt.newIndex, id = evt.item.dataset.id;
+    if (evt.oldIndex !== evt.newIndex) placeBetween(id, lis[i-1]?.dataset.id, lis[i+1]?.dataset.id);
+    else render();
+  }
+});
+
+/* Import */
+function parseImport(txt){
+  return txt.split(/\r?\n/).map(l => l.replace(/^\s*(?:[-*•○◯●▢☐☑✓✔]|\[[ xX]?\]|\d+[.)])\s*/, "").trim()).filter(Boolean);
+}
+$("#importText").addEventListener("input", e => { const n = parseImport(e.target.value).length; $("#importCount").textContent = n + (n === 1 ? " task" : " tasks") + " detected"; });
+$("#importBtn").onclick = () => {
+  const lines = parseImport($("#importText").value); if (!lines.length) return;
+  lines.forEach(l => addTask(l, {}, true));
+  $("#importText").value = ""; $("#importCount").textContent = "0 tasks detected";
+  $("#importBox").open = false; setFilter("active");
+  showToast(lines.length + " tiles imported");
+};
+
+/* Toast + notice */
+let toastTimer;
+function showToast(msg, actLabel, act){
+  const el = $("#toast"); el.innerHTML = "";
+  const s = document.createElement("span"); s.textContent = msg; el.append(s);
+  if (actLabel) { const b = document.createElement("button"); b.type = "button"; b.textContent = actLabel; b.onclick = () => { el.hidden = true; act(); }; el.append(b); }
+  el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => el.hidden = true, actLabel ? 6000 : 2200);
+}
+function showNotice(msg){ const n = $("#notice"); n.textContent = msg; n.hidden = false; }
+
+/* Refresh relative due labels every minute (display only). */
+setInterval(() => { if (!document.querySelector(".editor :focus")) render(); else renderCounts(sorted()); }, 60000);
+
+/* ---------- boot ---------- */
+setFilter(filter);
+(async () => {
+  let db = null;
+  try { db = window.claude?.use ? await window.claude.use("db") : null; } catch(e) {}
+  if (db) store = dbStore(db);
+  else {
+    store = localStore();
+    showNotice("Sign in to claude.ai to sync this board across devices. For now, tiles save in this browser only.");
+  }
+  store.subscribe(obj => { tasks = new Map(Object.entries(obj)); render(); });
+})();
+</script>
